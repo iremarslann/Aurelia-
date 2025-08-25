@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input"
 import * as Dialog from "@radix-ui/react-dialog"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 import { useGallery } from "@/context/GalleryContext"
+import { db } from "@/lib/firebase"
+import {
+  doc,
+  setDoc,
+  deleteDoc,
+  getDoc,
+  serverTimestamp,
+} from "firebase/firestore"
 
 export default function UnsplashSearch() {
   const [query, setQuery] = useState("")
@@ -14,8 +22,9 @@ export default function UnsplashSearch() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
+  const [writingIds, setWritingIds] = useState<Set<string>>(new Set())
 
-  const { addImage, removeImage, curated } = useGallery()
+  const { curated } = useGallery()
 
   // Lightbox
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
@@ -80,11 +89,38 @@ export default function UnsplashSearch() {
     if (page > 1) fetchImages(query, page)
   }, [page])
 
-  function toggleSelectImage(img: any) {
-    if (curated.find((i) => i.id === img.id)) {
-      removeImage(img.id)
-    } else {
-      addImage(img)
+  async function toggleSelectImage(img: any) {
+    if (writingIds.has(img.id)) return
+    setWritingIds((prev) => new Set(prev).add(img.id))
+
+    try {
+      const ref = doc(db, "curatedImages", img.id)
+      const snapshot = await getDoc(ref)
+
+      if (snapshot.exists()) {
+        // Remove
+        await deleteDoc(ref)
+      } else {
+        // Save
+        const toSave = {
+          id: img.id,
+          alt_description: img.alt_description || "",
+          urls: img.urls,
+          user: img.user
+            ? { name: img.user.name, username: img.user.username }
+            : null,
+          links: img.links ?? null,
+          source: "unsplash",
+          createdAt: serverTimestamp(),
+        }
+        await setDoc(ref, toSave, { merge: true })
+      }
+    } finally {
+      setWritingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(img.id)
+        return next
+      })
     }
   }
 
@@ -98,7 +134,10 @@ export default function UnsplashSearch() {
 
   function showPrev() {
     if (lightboxIndex !== null) {
-      setLightboxIndex((lightboxIndex - 1 + imagesForLightbox.length) % imagesForLightbox.length)
+      setLightboxIndex(
+        (lightboxIndex - 1 + imagesForLightbox.length) %
+          imagesForLightbox.length
+      )
     }
   }
 
@@ -185,7 +224,9 @@ export default function UnsplashSearch() {
               <div className="relative w-full max-w-4xl h-[80vh] flex items-center justify-center">
                 <Image
                   src={imagesForLightbox[lightboxIndex].urls.regular}
-                  alt={imagesForLightbox[lightboxIndex].alt_description || "Image"}
+                  alt={
+                    imagesForLightbox[lightboxIndex].alt_description || "Image"
+                  }
                   fill
                   className="object-contain"
                 />

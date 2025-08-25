@@ -1,34 +1,37 @@
 "use client"
 
-import { createContext, useContext, useState, ReactNode } from "react"
-
-
-type ImageType = {
-  id: string
-  urls: { small: string; regular: string }
-  alt_description: string | null
-}
+import { createContext, useContext, useEffect, useState } from "react"
+import { db } from "@/lib/firebase"
+import { collection, onSnapshot, query, orderBy, setDoc, deleteDoc, doc } from "firebase/firestore"
 
 type GalleryContextType = {
-  curated: ImageType[]
-  addImage: (img: ImageType) => void
-  removeImage: (id: string) => void
+  curated: any[]
+  addImage: (img: any) => Promise<void>
+  removeImage: (id: string) => Promise<void>
 }
 
 const GalleryContext = createContext<GalleryContextType | undefined>(undefined)
 
-export function GalleryProvider({ children }: { children: ReactNode }) {
-  const [curated, setCurated] = useState<ImageType[]>([])
+export function GalleryProvider({ children }: { children: React.ReactNode }) {
+  const [curated, setCurated] = useState<any[]>([])
 
-  const addImage = (img: ImageType) => {
-    setCurated((prev) => {
-      if (prev.find((i) => i.id === img.id)) return prev // avoid duplicates
-      return [...prev, img]
+  useEffect(() => {
+    const q = query(collection(db, "curatedImages"), orderBy("createdAt", "desc"))
+    const unsub = onSnapshot(q, (snap) => {
+      setCurated(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
+    return () => unsub()
+  }, [])
+
+  async function addImage(img: any) {
+    // Avoid duplicates by always setting the doc with the image.id as key
+    const ref = doc(db, "curatedImages", img.id)
+    await setDoc(ref, { ...img, createdAt: Date.now() })
   }
 
-  const removeImage = (id: string) => {
-    setCurated((prev) => prev.filter((i) => i.id !== id))
+  async function removeImage(id: string) {
+    const ref = doc(db, "curatedImages", id)
+    await deleteDoc(ref)
   }
 
   return (
@@ -39,7 +42,9 @@ export function GalleryProvider({ children }: { children: ReactNode }) {
 }
 
 export function useGallery() {
-  const context = useContext(GalleryContext)
-  if (!context) throw new Error("useGallery must be used inside GalleryProvider")
-  return context
+  const ctx = useContext(GalleryContext)
+  if (!ctx) throw new Error("useGallery must be used within a GalleryProvider")
+  return ctx
 }
+
+

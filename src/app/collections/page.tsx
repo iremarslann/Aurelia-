@@ -6,9 +6,11 @@ import { useGallery } from "@/context/GalleryContext"
 import * as Dialog from "@radix-ui/react-dialog"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { db } from "@/lib/firebase"
+import { deleteDoc, doc } from "firebase/firestore"
 
 export default function CollectionsPage() {
-  const { curated, removeImage } = useGallery()
+  const { curated } = useGallery() // no setImages needed
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [confirmImageId, setConfirmImageId] = useState<string | null>(null)
 
@@ -41,10 +43,9 @@ export default function CollectionsPage() {
         if (e.key === "ArrowRight") showNext()
       }
     }
-
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightboxIndex]) // re-bind when lightboxIndex changes
+  }, [lightboxIndex])
 
   return (
     <div className="space-y-6">
@@ -93,17 +94,14 @@ export default function CollectionsPage() {
                 Are you sure you want to remove this image from your collection?
               </p>
               <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setConfirmImageId(null)}
-                >
+                <Button variant="ghost" onClick={() => setConfirmImageId(null)}>
                   Cancel
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={() => {
+                  onClick={async () => {
                     if (confirmImageId) {
-                      removeImage(confirmImageId)
+                      await deleteDoc(doc(db, "curatedImages", confirmImageId))
                     }
                     setConfirmImageId(null)
                   }}
@@ -129,24 +127,18 @@ export default function CollectionsPage() {
                   fill
                   className="object-contain"
                 />
-
-                {/* Close */}
                 <button
                   onClick={closeLightbox}
                   className="absolute top-8 right-4 bg-black/60 p-2 rounded-full text-white"
                 >
                   <X size={24} />
                 </button>
-
-                {/* Left */}
                 <button
                   onClick={showPrev}
                   className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
                 >
                   <ChevronLeft size={32} />
                 </button>
-
-                {/* Right */}
                 <button
                   onClick={showNext}
                   className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
@@ -161,6 +153,3 @@ export default function CollectionsPage() {
     </div>
   )
 }
-
-
-
