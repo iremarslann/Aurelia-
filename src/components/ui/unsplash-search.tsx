@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,20 +12,25 @@ export default function UnsplashSearch() {
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
 
-  const { curated, addImage, removeImage } = useGallery()
+  const { addImage, removeImage, curated } = useGallery()
 
-  // For lightbox
+  // Lightbox
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const [lightboxImages, setLightboxImages] = useState<any[]>([])
+  const imagesForLightbox = results
 
-  async function searchUnsplash() {
-    if (!query) return
+  // Infinite scroll ref
+  const observerRef = useRef<IntersectionObserver | null>(null)
+
+  async function fetchImages(newQuery: string, pageNumber: number) {
+    if (!newQuery) return
     setLoading(true)
 
     try {
       const res = await fetch(
-        `https://api.unsplash.com/search/photos?query=${query}&per_page=12`,
+        `https://api.unsplash.com/search/photos?query=${newQuery}&page=${pageNumber}&per_page=12`,
         {
           headers: {
             Authorization: `Client-ID ${process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY}`,
@@ -33,13 +38,47 @@ export default function UnsplashSearch() {
         }
       )
       const data = await res.json()
-      setResults(data.results || [])
+
+      if (pageNumber === 1) {
+        setResults(data.results || [])
+      } else {
+        setResults((prev) => [...prev, ...(data.results || [])])
+      }
+
+      setHasMore(data.results && data.results.length > 0)
     } catch (err) {
       console.error("Error fetching Unsplash images:", err)
     } finally {
       setLoading(false)
     }
   }
+
+  function searchUnsplash() {
+    setPage(1)
+    fetchImages(query, 1)
+  }
+
+  // Infinite scroll handler
+  const lastImageRef = useCallback(
+    (node: HTMLDivElement) => {
+      if (loading) return
+      if (observerRef.current) observerRef.current.disconnect()
+
+      observerRef.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setPage((prev) => prev + 1)
+        }
+      })
+
+      if (node) observerRef.current.observe(node)
+    },
+    [loading, hasMore]
+  )
+
+  // Fetch when page changes
+  useEffect(() => {
+    if (page > 1) fetchImages(query, page)
+  }, [page])
 
   function toggleSelectImage(img: any) {
     if (curated.find((i) => i.id === img.id)) {
@@ -49,8 +88,7 @@ export default function UnsplashSearch() {
     }
   }
 
-  function openLightbox(index: number, images: any[]) {
-    setLightboxImages(images)
+  function openLightbox(index: number) {
     setLightboxIndex(index)
   }
 
@@ -60,17 +98,29 @@ export default function UnsplashSearch() {
 
   function showPrev() {
     if (lightboxIndex !== null) {
-      setLightboxIndex(
-        (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length
-      )
+      setLightboxIndex((lightboxIndex - 1 + imagesForLightbox.length) % imagesForLightbox.length)
     }
   }
 
   function showNext() {
     if (lightboxIndex !== null) {
-      setLightboxIndex((lightboxIndex + 1) % lightboxImages.length)
+      setLightboxIndex((lightboxIndex + 1) % imagesForLightbox.length)
     }
   }
+
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (lightboxIndex !== null) {
+        if (e.key === "Escape") closeLightbox()
+        if (e.key === "ArrowLeft") showPrev()
+        if (e.key === "ArrowRight") showNext()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [lightboxIndex])
 
   return (
     <div className="space-y-8">
@@ -91,14 +141,16 @@ export default function UnsplashSearch() {
       {results.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {results.map((img, index) => {
-            const isSelected = curated.some((i) => i.id === img.id)
+            const isCurated = curated.some((i) => i.id === img.id)
+            const isLast = index === results.length - 1
             return (
               <div
                 key={img.id}
-                className={`relative w-full h-48 rounded-lg overflow-hidden border-2 cursor-pointer ${
-                  isSelected ? "border-blue-500" : "border-transparent"
+                ref={isLast ? lastImageRef : null}
+                className={`relative w-full h-48 rounded-lg overflow-hidden border-2 cursor-pointer group ${
+                  isCurated ? "border-blue-500" : "border-transparent"
                 }`}
-                onClick={() => openLightbox(index, results)}
+                onClick={() => openLightbox(index)}
               >
                 <Image
                   src={img.urls.small}
@@ -106,25 +158,25 @@ export default function UnsplashSearch() {
                   fill
                   className="object-cover"
                 />
-                <div className="absolute bottom-2 left-2">
-                  <Button
-                    size="sm"
-                    variant={isSelected ? "secondary" : "default"}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleSelectImage(img)
-                    }}
-                  >
-                    {isSelected ? "Remove" : "Select"}
-                  </Button>
-                </div>
+                {/* Hover Select/Remove */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleSelectImage(img)
+                  }}
+                  className="absolute top-2 right-2 bg-black/60 text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition"
+                >
+                  {isCurated ? "Remove" : "Select"}
+                </button>
               </div>
             )
           })}
         </div>
       )}
 
-      {/* Lightbox Modal */}
+      {loading && <p className="text-center">Loading more images...</p>}
+
+      {/* Lightbox */}
       <Dialog.Root open={lightboxIndex !== null} onOpenChange={closeLightbox}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
@@ -132,10 +184,8 @@ export default function UnsplashSearch() {
             {lightboxIndex !== null && (
               <div className="relative w-full max-w-4xl h-[80vh] flex items-center justify-center">
                 <Image
-                  src={lightboxImages[lightboxIndex].urls.regular}
-                  alt={
-                    lightboxImages[lightboxIndex].alt_description || "Image"
-                  }
+                  src={imagesForLightbox[lightboxIndex].urls.regular}
+                  alt={imagesForLightbox[lightboxIndex].alt_description || "Image"}
                   fill
                   className="object-contain"
                 />
@@ -171,3 +221,4 @@ export default function UnsplashSearch() {
     </div>
   )
 }
+

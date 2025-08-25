@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useGallery } from "@/context/GalleryContext"
 import * as Dialog from "@radix-ui/react-dialog"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
@@ -32,6 +32,20 @@ export default function CollectionsPage() {
     }
   }
 
+  // 🔑 Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (lightboxIndex !== null) {
+        if (e.key === "Escape") closeLightbox()
+        if (e.key === "ArrowLeft") showPrev()
+        if (e.key === "ArrowRight") showNext()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [lightboxIndex]) // re-bind when lightboxIndex changes
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Your Collections</h1>
@@ -57,7 +71,7 @@ export default function CollectionsPage() {
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  setConfirmImageId(img.id) // open confirm dialog
+                  setConfirmImageId(img.id)
                 }}
                 className="absolute top-2 right-2 bg-black/60 text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition"
               >
@@ -147,5 +161,6 @@ export default function CollectionsPage() {
     </div>
   )
 }
+
 
 
