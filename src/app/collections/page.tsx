@@ -1,51 +1,22 @@
 "use client"
 
 import Image from "next/image"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useGallery } from "@/context/GalleryContext"
 import * as Dialog from "@radix-ui/react-dialog"
-import { ChevronLeft, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { db } from "@/lib/firebase"
 import { deleteDoc, doc } from "firebase/firestore"
+import Lightbox from "@/components/ui/Lightbox"
 
 export default function CollectionsPage() {
-  const { curated } = useGallery() // no setImages needed
+  const { curated } = useGallery()
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [confirmImageId, setConfirmImageId] = useState<string | null>(null)
 
   function openLightbox(index: number) {
     setLightboxIndex(index)
   }
-
-  function closeLightbox() {
-    setLightboxIndex(null)
-  }
-
-  function showPrev() {
-    if (lightboxIndex !== null) {
-      setLightboxIndex((lightboxIndex - 1 + curated.length) % curated.length)
-    }
-  }
-
-  function showNext() {
-    if (lightboxIndex !== null) {
-      setLightboxIndex((lightboxIndex + 1) % curated.length)
-    }
-  }
-
-  // 🔑 Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (lightboxIndex !== null) {
-        if (e.key === "Escape") closeLightbox()
-        if (e.key === "ArrowLeft") showPrev()
-        if (e.key === "ArrowRight") showNext()
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightboxIndex])
 
   return (
     <div className="space-y-6">
@@ -84,7 +55,10 @@ export default function CollectionsPage() {
       )}
 
       {/* Confirm Remove Modal */}
-      <Dialog.Root open={!!confirmImageId} onOpenChange={() => setConfirmImageId(null)}>
+      <Dialog.Root
+        open={!!confirmImageId}
+        onOpenChange={() => setConfirmImageId(null)}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
           <Dialog.Content className="fixed inset-0 flex items-center justify-center z-50">
@@ -94,7 +68,10 @@ export default function CollectionsPage() {
                 Are you sure you want to remove this image from your collection?
               </p>
               <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setConfirmImageId(null)}>
+                <Button
+                  variant="ghost"
+                  onClick={() => setConfirmImageId(null)}
+                >
                   Cancel
                 </Button>
                 <Button
@@ -114,42 +91,18 @@ export default function CollectionsPage() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      {/* Lightbox Modal */}
-      <Dialog.Root open={lightboxIndex !== null} onOpenChange={closeLightbox}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
-          <Dialog.Content className="fixed inset-0 flex items-center justify-center z-50">
-            {lightboxIndex !== null && (
-              <div className="relative w-full max-w-4xl h-[80vh] flex items-center justify-center">
-                <Image
-                  src={curated[lightboxIndex].urls.regular}
-                  alt={curated[lightboxIndex].alt_description || "Curated Image"}
-                  fill
-                  className="object-contain"
-                />
-                <button
-                  onClick={closeLightbox}
-                  className="absolute top-8 right-4 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <X size={24} />
-                </button>
-                <button
-                  onClick={showPrev}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <ChevronLeft size={32} />
-                </button>
-                <button
-                  onClick={showNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <ChevronRight size={32} />
-                </button>
-              </div>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      {/* Lightbox (shared component) */}
+      {lightboxIndex !== null && (
+        <Lightbox
+          images={curated.map((img) => ({
+            src: img.urls.regular,
+            alt: img.alt_description || "Curated Image",
+          }))}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   )
 }
+

@@ -33,6 +33,11 @@ export default function RootLayout({
                     Collections
                   </Button>
                 </Link>
+                <Link href={"/boards"}>
+                  <Button variant={"ghost"} className="w-full justify-start">
+                    Boards
+                  </Button>
+                </Link>
               </nav>
             </aside>
 

@@ -4,17 +4,21 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import * as Dialog from "@radix-ui/react-dialog"
-import { ChevronLeft, ChevronRight, X } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useGallery } from "@/context/GalleryContext"
 import { db } from "@/lib/firebase"
 import {
   doc,
   setDoc,
-  deleteDoc,
   getDoc,
   serverTimestamp,
 } from "firebase/firestore"
+import Lightbox from "@/components/ui/Lightbox"
 
 export default function UnsplashSearch() {
   const [query, setQuery] = useState("")
@@ -22,13 +26,15 @@ export default function UnsplashSearch() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
-  const [writingIds, setWritingIds] = useState<Set<string>>(new Set())
 
-  const { curated } = useGallery()
+  const { curated, boards, addImageToBoard, createBoard } = useGallery()
 
   // Lightbox
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
-  const imagesForLightbox = results
+
+  // Board Dialog
+  const [boardDialogOpen, setBoardDialogOpen] = useState(false)
+  const [activeImage, setActiveImage] = useState<any | null>(null)
 
   // Infinite scroll ref
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -89,77 +95,30 @@ export default function UnsplashSearch() {
     if (page > 1) fetchImages(query, page)
   }, [page])
 
-  async function toggleSelectImage(img: any) {
-    if (writingIds.has(img.id)) return
-    setWritingIds((prev) => new Set(prev).add(img.id))
+  // Always save to collections when adding to a board
+  async function saveToCollections(img: any) {
+    const ref = doc(db, "curatedImages", img.id)
+    const snapshot = await getDoc(ref)
 
-    try {
-      const ref = doc(db, "curatedImages", img.id)
-      const snapshot = await getDoc(ref)
-
-      if (snapshot.exists()) {
-        // Remove
-        await deleteDoc(ref)
-      } else {
-        // Save
-        const toSave = {
-          id: img.id,
-          alt_description: img.alt_description || "",
-          urls: img.urls,
-          user: img.user
-            ? { name: img.user.name, username: img.user.username }
-            : null,
-          links: img.links ?? null,
-          source: "unsplash",
-          createdAt: serverTimestamp(),
-        }
-        await setDoc(ref, toSave, { merge: true })
+    if (!snapshot.exists()) {
+      const toSave = {
+        id: img.id,
+        alt_description: img.alt_description || "",
+        urls: img.urls,
+        user: img.user
+          ? { name: img.user.name, username: img.user.username }
+          : null,
+        links: img.links ?? null,
+        source: "unsplash",
+        createdAt: serverTimestamp(),
       }
-    } finally {
-      setWritingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(img.id)
-        return next
-      })
+      await setDoc(ref, toSave, { merge: true })
     }
   }
 
   function openLightbox(index: number) {
     setLightboxIndex(index)
   }
-
-  function closeLightbox() {
-    setLightboxIndex(null)
-  }
-
-  function showPrev() {
-    if (lightboxIndex !== null) {
-      setLightboxIndex(
-        (lightboxIndex - 1 + imagesForLightbox.length) %
-          imagesForLightbox.length
-      )
-    }
-  }
-
-  function showNext() {
-    if (lightboxIndex !== null) {
-      setLightboxIndex((lightboxIndex + 1) % imagesForLightbox.length)
-    }
-  }
-
-  // Keyboard navigation
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (lightboxIndex !== null) {
-        if (e.key === "Escape") closeLightbox()
-        if (e.key === "ArrowLeft") showPrev()
-        if (e.key === "ArrowRight") showNext()
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [lightboxIndex])
 
   return (
     <div className="space-y-8">
@@ -186,9 +145,7 @@ export default function UnsplashSearch() {
               <div
                 key={img.id}
                 ref={isLast ? lastImageRef : null}
-                className={`relative w-full h-48 rounded-lg overflow-hidden border-2 cursor-pointer group ${
-                  isCurated ? "border-blue-500" : "border-transparent"
-                }`}
+                className="relative w-full h-48 rounded-lg overflow-hidden border-2 cursor-pointer group"
                 onClick={() => openLightbox(index)}
               >
                 <Image
@@ -197,15 +154,17 @@ export default function UnsplashSearch() {
                   fill
                   className="object-cover"
                 />
-                {/* Hover Select/Remove */}
+
+                {/* Hover Select (opens board dialog) */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    toggleSelectImage(img)
+                    setActiveImage(img)
+                    setBoardDialogOpen(true)
                   }}
                   className="absolute top-2 right-2 bg-black/60 text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition"
                 >
-                  {isCurated ? "Remove" : "Select"}
+                  {isCurated ? "Add to Board" : "Select"}
                 </button>
               </div>
             )
@@ -215,51 +174,77 @@ export default function UnsplashSearch() {
 
       {loading && <p className="text-center">Loading more images...</p>}
 
-      {/* Lightbox */}
-      <Dialog.Root open={lightboxIndex !== null} onOpenChange={closeLightbox}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
-          <Dialog.Content className="fixed inset-0 flex items-center justify-center z-50">
-            {lightboxIndex !== null && (
-              <div className="relative w-full max-w-4xl h-[80vh] flex items-center justify-center">
-                <Image
-                  src={imagesForLightbox[lightboxIndex].urls.regular}
-                  alt={
-                    imagesForLightbox[lightboxIndex].alt_description || "Image"
-                  }
-                  fill
-                  className="object-contain"
-                />
+      {/* Lightbox (shared component) */}
+      {lightboxIndex !== null && (
+        <Lightbox
+          images={results.map((img) => ({
+            src: img.urls.regular,
+            alt: img.alt_description || "Unsplash Image",
+          }))}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          extraAction={{
+            label: "+ Add to Board",
+            onClick: () => {
+              if (lightboxIndex !== null) {
+                setActiveImage(results[lightboxIndex])
+                setBoardDialogOpen(true)
+              }
+            },
+          }}
+        />
+      )}
 
-                {/* Close */}
-                <button
-                  onClick={closeLightbox}
-                  className="absolute top-8 right-4 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <X size={24} />
-                </button>
-
-                {/* Left */}
-                <button
-                  onClick={showPrev}
-                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <ChevronLeft size={32} />
-                </button>
-
-                {/* Right */}
-                <button
-                  onClick={showNext}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-white"
-                >
-                  <ChevronRight size={32} />
-                </button>
-              </div>
+      {/* Board Selection Dialog */}
+      <Dialog open={boardDialogOpen} onOpenChange={setBoardDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Select a board</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            {boards.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No boards yet. Create one first!
+              </p>
             )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            {boards.map((b) => (
+              <button
+                key={b.id}
+                onClick={async () => {
+                  if (activeImage) {
+                    await saveToCollections(activeImage)
+                    await addImageToBoard(b.id, activeImage)
+                  }
+                  setBoardDialogOpen(false)
+                }}
+                className="w-full text-left px-4 py-2 rounded hover:bg-gray-100"
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Create new board inline */}
+          <div className="pt-4 border-t mt-4">
+            <Button
+              className="w-full"
+              onClick={async () => {
+                const name = prompt("New board name?")
+                if (name && activeImage) {
+                  const newBoardId = await createBoard(name)
+                  await saveToCollections(activeImage)
+                  await addImageToBoard(newBoardId, activeImage)
+                  setBoardDialogOpen(false)
+                }
+              }}
+            >
+              + Create New Board
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+
 
