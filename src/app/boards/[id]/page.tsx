@@ -46,6 +46,36 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   const [palette, setPalette] = useState<string[]>([])
 
+  // --- Build a board-level palette from multiple images (first N for perf)
+  async function computeBoardPalette(imgs: BoardImage[], maxImages = 16): Promise<string[]> {
+    const subset = imgs.slice(0, maxImages)
+    const results = await Promise.allSettled(
+      subset.map((img) => {
+        const src = img.urls?.small || img.url
+        if (!src) return Promise.resolve<string[]>([])
+        return getPalette(src).catch(() => [])
+      })
+    )
+
+    // Count frequency of hex colors
+    const freq = new Map<string, number>()
+    for (const r of results) {
+      if (r.status === "fulfilled" && Array.isArray(r.value)) {
+        for (const hex of r.value) {
+          if (!hex) continue
+          const key = hex.toUpperCase()
+          freq.set(key, (freq.get(key) || 0) + 1)
+        }
+      }
+    }
+
+    // Top 6 most frequent colors
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([hex]) => hex)
+  }
+
   useEffect(() => {
     const fetchBoard = async () => {
       const snap = await getDoc(doc(db, "boards", params.id))
@@ -65,16 +95,18 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
       collection(db, "boards", params.id, "images"),
       orderBy("createdAt", "desc")
     )
+
     const unsub = onSnapshot(q, async (snap) => {
       const imgs: BoardImage[] = snap.docs.map((d) => ({ id: d.id, ...d.data() } as BoardImage))
       setImages(imgs)
 
       if (imgs.length > 0) {
         try {
-          const colors = await getPalette(imgs[0].urls?.small || imgs[0].url || "")
-          setPalette(colors)
+          const boardPalette = await computeBoardPalette(imgs, 16)
+          setPalette(boardPalette)
         } catch (err) {
-          console.error("Palette generation failed:", err)
+          console.error("Board palette generation failed:", err)
+          setPalette([])
         }
       } else {
         setPalette([])
@@ -86,10 +118,7 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
 
   async function handleSaveEdits() {
     const ref = doc(db, "boards", params.id)
-    await updateDoc(ref, {
-      name: editName,
-      description: editDescription,
-    })
+    await updateDoc(ref, { name: editName, description: editDescription })
     setBoard({ name: editName, description: editDescription })
     setIsEditing(false)
   }
@@ -120,17 +149,20 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
         </div>
       </div>
 
-      {/* Palette Preview */}
+      {/* Board-level Palette */}
       {palette.length > 0 && (
-        <div className="flex gap-2 mb-4">
-          {palette.map((color, i) => (
-            <div
-              key={i}
-              className="w-10 h-10 rounded-lg shadow"
-              style={{ backgroundColor: color }}
-              title={color}
-            />
-          ))}
+        <div className="mb-2">
+          <p className="text-sm text-muted-foreground mb-2">Board palette (aggregated)</p>
+          <div className="flex gap-2">
+            {palette.map((color) => (
+              <div
+                key={color}
+                className="w-10 h-10 rounded-lg shadow ring-1 ring-black/10"
+                style={{ backgroundColor: color }}
+                title={color}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -151,6 +183,7 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
                 fill
                 className="object-cover rounded-lg"
               />
+              {/* Hover Remove Button */}
               <button
                 onClick={(e) => {
                   e.stopPropagation()
@@ -165,13 +198,13 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
-      {/* Confirm Remove Image Modal */}
+      {/* Confirm Remove Image (Radix) */}
       <Dialog.Root open={!!confirmImageId} onOpenChange={() => setConfirmImageId(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
           <Dialog.Content className="fixed inset-0 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 shadow-lg max-w-sm w-full space-y-4">
-              <h2 className="text-lg font-semibold">Remove Image?</h2>
+              <Dialog.Title className="text-lg font-semibold">Remove Image?</Dialog.Title>
               <p className="text-sm text-muted-foreground">
                 Are you sure you want to remove this image from your board?
               </p>
@@ -208,7 +241,7 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
         />
       )}
 
-      {/* Edit Board Modal */}
+      {/* Edit Board (Radix) */}
       <Dialog.Root open={isEditing} onOpenChange={setIsEditing}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
@@ -238,13 +271,13 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
         </Dialog.Portal>
       </Dialog.Root>
 
-      {/* Delete Board Modal */}
+      {/* Delete Board (Radix) */}
       <Dialog.Root open={deleteBoardOpen} onOpenChange={setDeleteBoardOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 z-40" />
           <Dialog.Content className="fixed inset-0 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 shadow-lg max-w-sm w-full space-y-4">
-              <h2 className="text-lg font-semibold">Delete Board?</h2>
+              <Dialog.Title className="text-lg font-semibold">Delete Board?</Dialog.Title>
               <p className="text-sm text-muted-foreground">
                 This will permanently delete the board and all images inside it. This action
                 cannot be undone.
@@ -270,4 +303,5 @@ export default function BoardDetailPage({ params }: { params: { id: string } }) 
     </div>
   )
 }
+
 
